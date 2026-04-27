@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Dark Knowledge Quest</title>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&display=swap');
+
+body {
+  margin: 0;
+  background: radial-gradient(circle at center, #050505, #000);
+  font-family: 'Cinzel', serif;
+  color: #d1c7ff;
+  overflow: hidden;
+}
+
+/* HUD */
+#hud {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: rgba(20,0,40,0.8);
+  padding: 12px;
+  border: 1px solid #8b5cf6;
+  box-shadow: 0 0 20px #8b5cf6;
+  border-radius: 10px;
+}
+
+/* Canvas */
+canvas {
+  display: block;
+  margin: auto;
+  margin-top: 40px;
+  border: 2px solid #8b5cf6;
+  box-shadow: 0 0 40px #8b5cf6;
+  background: radial-gradient(circle, #111, #000);
+}
+
+/* Battle */
+#battle {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80%;
+  background: rgba(10,0,20,0.95);
+  border: 1px solid #8b5cf6;
+  box-shadow: 0 0 25px #8b5cf6;
+  padding: 20px;
+  border-radius: 15px;
+  display: none;
+}
+
+button {
+  margin: 8px;
+  padding: 10px;
+  background: #1a0033;
+  border: 1px solid #8b5cf6;
+  color: #fff;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #8b5cf6;
+}
+</style>
+</head>
+
+<body>
+
+<div id="hud">
+  ❤️ Vida: <span id="hp">100</span><br>
+  🗺️ Fase: <span id="lvl">1</span>
+</div>
+
+<canvas id="game" width="500" height="500"></canvas>
+
+<div id="battle">
+  <h2 id="battleTitle">⚔️ Encontro</h2>
+  <div id="question"></div>
+  <div id="answers"></div>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const tile = 25;
+const size = 20;
+
+let level = 0;
+let player = {x:1,y:1,hp:100};
+
+let levels = [
+  {enemyCount:5},
+  {enemyCount:8},
+  {enemyCount:12}
+];
+
+let enemies = [];
+
+/* =========================
+   GERADOR DE +500 PERGUNTAS
+========================= */
+function generateQuestions(){
+  let qs = [];
+
+  // matemática
+  for(let i=0;i<250;i++){
+    let a = Math.floor(Math.random()*50);
+    let b = Math.floor(Math.random()*50);
+    let correct = a + b;
+
+    let options = [correct, correct+1, correct-1]
+      .sort(()=>Math.random()-0.5);
+
+    qs.push({
+      q:`Quanto é ${a} + ${b}?`,
+      a: options,
+      correct: options.indexOf(correct)
+    });
+  }
+
+  // lógica
+  for(let i=0;i<250;i++){
+    let n = Math.floor(Math.random()*20);
+    qs.push({
+      q:`Qual vem depois: ${n}, ${n+1}, ${n+2}?`,
+      a:[n+3,n+4,n+5],
+      correct:0
+    });
+  }
+
+  return qs;
+}
+
+const questions = generateQuestions();
+
+/* =========================
+   PERGUNTAS DIFÍCEIS (BOSS)
+========================= */
+const hardQuestions = [
+  {q:"Raiz de 625?",a:["20","25","30"],correct:1},
+  {q:"Ano da Revolução Francesa?",a:["1789","1776","1804"],correct:0},
+  {q:"Quem pintou a Capela Sistina?",a:["Da Vinci","Michelangelo","Van Gogh"],correct:1},
+  {q:"Elemento Fe?",a:["Ferro","Flúor","Fósforo"],correct:0},
+  {q:"12³?",a:["1728","144","1331"],correct:0},
+  {q:"Planeta com mais luas?",a:["Terra","Marte","Saturno"],correct:2}
+];
+
+/* ========================= */
+let mode="map";
+let currentEnemy=null;
+let currentQuestion=null;
+
+let bossMode=false;
+let bossHits=0;
+
+/* ========================= */
+function generateEnemies(){
+  enemies=[];
+  for(let i=0;i<levels[level].enemyCount;i++){
+    enemies.push({
+      x:Math.floor(Math.random()*size),
+      y:Math.floor(Math.random()*size),
+      alive:true
+    });
+  }
+}
+
+/* ========================= */
+function draw(){
+  ctx.clearRect(0,0,500,500);
+
+  for(let y=0;y<size;y++){
+    for(let x=0;x<size;x++){
+      ctx.strokeStyle="#1a0033";
+      ctx.strokeRect(x*tile,y*tile,tile,tile);
+    }
+  }
+
+  // inimigos
+  enemies.forEach(e=>{
+    if(e.alive){
+      ctx.fillStyle="#ff004c";
+      ctx.beginPath();
+      ctx.arc(e.x*tile+12,e.y*tile+12,6,0,Math.PI*2);
+      ctx.fill();
+    }
+  });
+
+  // player
+  ctx.fillStyle="#8b5cf6";
+  ctx.beginPath();
+  ctx.arc(player.x*tile+12,player.y*tile+12,8,0,Math.PI*2);
+  ctx.fill();
+}
+
+/* ========================= */
+function move(dx,dy){
+  if(mode!=="map") return;
+
+  let nx = player.x + dx;
+  let ny = player.y + dy;
+
+  if(nx>=0 && ny>=0 && nx<size && ny<size){
+    player.x = nx;
+    player.y = ny;
+  }
+
+  checkEnemy();
+  draw();
+}
+
+/* ========================= */
+function checkEnemy(){
+  enemies.forEach(e=>{
+    if(e.alive && e.x===player.x && e.y===player.y){
+      startBattle(e);
+    }
+  });
+
+  if(enemies.every(e=>!e.alive)){
+    nextLevel();
+  }
+}
+
+/* ========================= */
+function startBattle(enemy){
+  mode="battle";
+  currentEnemy=enemy;
+
+  document.getElementById("battle").style.display="block";
+  <!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Dark Knowledge Quest</title>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&display=swap');
+
+body {
+  margin: 0;
+  background: radial-gradient(circle at center, #050505, #000);
+  font-family: 'Cinzel', serif;
+  color: #d1c7ff;
+  overflow: hidden;
+}
+
+/* HUD */
+#hud {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: rgba(20,0,40,0.8);
+  padding: 12px;
+  border: 1px solid #8b5cf6;
+  box-shadow: 0 0 20px #8b5cf6;
+  border-radius: 10px;
+}
+
+/* Canvas */
+canvas {
+  display: block;
+  margin: auto;
+  margin-top: 40px;
+  border: 2px solid #8b5cf6;
+  box-shadow: 0 0 40px #8b5cf6;
+  background: radial-gradient(circle, #111, #000);
+}
+
+/* Battle */
+#battle {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80%;
+  background: rgba(10,0,20,0.95);
+  border: 1px solid #8b5cf6;
+  box-shadow: 0 0 25px #8b5cf6;
+  padding: 20px;
+  border-radius: 15px;
+  display: none;
+}
+
+button {
+  margin: 8px;
+  padding: 10px;
+  background: #1a0033;
+  border: 1px solid #8b5cf6;
+  color: #fff;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #8b5cf6;
+}
+</style>
+</head>
+
+<body>
+
+<div id="hud">
+  ❤️ Vida: <span id="hp">100</span><br>
+  🗺️ Fase: <span id="lvl">1</span>
+</div>
+
+<canvas id="game" width="500" height="500"></canvas>
+
+<div id="battle">
+  <h2 id="battleTitle">⚔️ Encontro</h2>
+  <div id="question"></div>
+  <div id="answers"></div>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const tile = 25;
+const size = 20;
+
+let level = 0;
+let player = {x:1,y:1,hp:100};
+
+let levels = [
+  {enemyCount:5},
+  {enemyCount:8},
+  {enemyCount:12}
+];
+
+let enemies = [];
+
+/* =========================
+   GERADOR DE +500 PERGUNTAS
+========================= */
+function generateQuestions(){
+  let qs = [];
+
+  // matemática
+  for(let i=0;i<250;i++){
+    let a = Math.floor(Math.random()*50);
+    let b = Math.floor(Math.random()*50);
+    let correct = a + b;
+
+    let options = [correct, correct+1, correct-1]
+      .sort(()=>Math.random()-0.5);
+
+    qs.push({
+      q:`Quanto é ${a} + ${b}?`,
+      a: options,
+      correct: options.indexOf(correct)
+    });
+  }
+
+  // lógica
+  for(let i=0;i<250;i++){
+    let n = Math.floor(Math.random()*20);
+    qs.push({
+      q:`Qual vem depois: ${n}, ${n+1}, ${n+2}?`,
+      a:[n+3,n+4,n+5],
+      correct:0
+    });
+  }
+
+  return qs;
+}
+
+const questions = generateQuestions();
+
+/* =========================
+   PERGUNTAS DIFÍCEIS (BOSS)
+========================= */
+const hardQuestions = [
+  {q:"Raiz de 625?",a:["20","25","30"],correct:1},
+  {q:"Ano da Revolução Francesa?",a:["1789","1776","1804"],correct:0},
+  {q:"Quem pintou a Capela Sistina?",a:["Da Vinci","Michelangelo","Van Gogh"],correct:1},
+  {q:"Elemento Fe?",a:["Ferro","Flúor","Fósforo"],correct:0},
+  {q:"12³?",a:["1728","144","1331"],correct:0},
+  {q:"Planeta com mais luas?",a:["Terra","Marte","Saturno"],correct:2}
+];
+
+/* ========================= */
+let mode="map";
+let currentEnemy=null;
+let currentQuestion=null;
+
+let bossMode=false;
+let bossHits=0;
+
+/* ========================= */
+function generateEnemies(){
+  enemies=[];
+  for(let i=0;i<levels[level].enemyCount;i++){
+    enemies.push({
+      x:Math.floor(Math.random()*size),
+      y:Math.floor(Math.random()*size),
+      alive:true
+    });
+  }
+}
+/* ========================= */
+function showQuestion(){
+  document.getElementById("question").innerText=currentQuestion.q;
+
+  let div=document.getElementById("answers");
+  div.innerHTML="";
+
+  currentQuestion.a.forEach((ans,i)=>{
+    let btn=document.createElement("button");
+    btn.innerText=ans;
+    btn.onclick=()=>answer(i);
+    div.appendChild(btn);
+  });
+}
+
+/* ========================= */
+function answer(i){
+
+  if(i===currentQuestion.correct){
+
+    if(bossMode){
+      bossHits++;
+      alert("🔥 Acertou! ("+bossHits+"/5)");
+
+      if(bossHits>=5){
+        alert("🏆 Você derrotou o CHEFÃO!");
+        location.reload();
+        return;
+      }
+
+    } else {
+      currentEnemy.alive=false;
+      alert("🔥 Acertou!");
+    }
+
+  } else {
+    player.hp-=20;
+
+    if(bossMode){
+      bossHits=0;
+      alert("❌ Errou! Sequência resetada!");
+    } else {
+      alert("❌ Errou!");
+    }
+  }
+
+  document.getElementById("hp").innerText=player.hp;
+
+  if(player.hp<=0){
+    alert("💀 Game Over");
+    location.reload();
+  }
+
+  endBattle();
+}
+
+/* ========================= */
+function endBattle(){
+  mode="map";
+  document.getElementById("battle").style.display="none";
+  draw();
+}
+
+/* ========================= */
+function nextLevel(){
+  level++;
+
+  if(level>=levels.length){
+    bossMode=true;
+    alert("👹 O CHEFÃO FINAL APARECEU!");
+    startBattle({});
+    return;
+  }
+
+  document.getElementById("lvl").innerText=level+1;
+
+  player.x=1;
+  player.y=1;
+
+  generateEnemies();
+  draw();
+}
+
+/* ========================= */
+document.addEventListener("keydown", e=>{
+  if(["w","ArrowUp"].includes(e.key)) move(0,-1);
+  if(["s","ArrowDown"].includes(e.key)) move(0,1);
+  if(["a","ArrowLeft"].includes(e.key)) move(-1,0);
+  if(["d","ArrowRight"].includes(e.key)) move(1,0);
+});
+
+/* START */
+generateEnemies();
+draw();
+</script>
+
+</body>
+</html>
